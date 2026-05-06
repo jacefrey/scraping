@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "URL→bytes, URL→Markdown, URL→PDF, and Apify v2 client — a four-skill family for open-web and third-party scraping",
-    "version": "0.1.1"
+    "version": "0.2.0"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
         "url": "https://github.com/jacefrey/scraping.git"
       },
       "description": "URL→bytes (web-fetch), URL→Markdown (webpage-to-md), URL→PDF (webpage-to-pdf), and stdlib-only Apify v2 client (apify-runner). Built for macOS 13 Intel.",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "strict": true
     }
   ]
