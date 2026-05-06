@@ -1,0 +1,22 @@
+# apify-runner.toml — example config
+#
+# Precedence: explicit toml_path argument > CWD/apify-runner.toml >
+# ~/.config/apify-runner.toml > baked defaults.
+
+[apify]
+poll_interval_s = 5                # how often to GET /actor-runs/{id} during a run
+default_timeout_s = 600             # max wait for run completion (per call)
+default_dataset_mode = "list"       # "list" (in-memory) | "jsonl" (stream to file)
+max_dataset_items = 10000            # safety cap (list mode only)
+jsonl_max_dataset_items = 100000    # safety cap (jsonl mode)
+jsonl_max_dataset_bytes = 5_000_000_000  # 5 GB hard ceiling on the JSONL file
+abort_on_timeout = false             # default; per-call override available
+strict_permissions = false           # if true, refuse loose-mode .env (§7.3)
+api_base = "https://api.apify.com/v2"  # override for compatible deployments
+cost_buffer_percent = 0              # see §7.7 — abort when cost reaches max_cost_usd * (1 - buffer/100)
+
+[apify.dataset]
+# JSONL streaming write behavior on partial failure.
+# "rename" -> rename .tmp to <output_path>.partial.jsonl
+# "delete" -> delete .tmp
+on_partial = "rename"

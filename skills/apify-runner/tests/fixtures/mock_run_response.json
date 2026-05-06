@@ -1,0 +1,9 @@
+{"data": {
+  "id": "run-abc-123",
+  "actId": "apify/cheerio-scraper",
+  "defaultDatasetId": "ds-xyz-789",
+  "status": "READY",
+  "startedAt": "2026-05-04T10:00:00Z",
+  "finishedAt": null,
+  "usage": {"totalUsd": 0.0}
+}}
