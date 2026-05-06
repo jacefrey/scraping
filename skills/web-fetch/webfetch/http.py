@@ -6,10 +6,11 @@ from typing import Any
 import requests
 from webfetch._clock import _clock
 from webfetch.result import FetchResult, FetchError
+from webfetch.detect import classify_content_type, is_challenge_page
 
 _NON_RETRY_STATUS_CATEGORY = {
     401: "auth_required",
-    403: "blocked",      # may be upgraded to bot_challenge by detect.py
+    403: "blocked",      # may be upgraded to bot_challenge by the challenge-page check below
     404: "not_found",
     410: "not_found",
     451: "legal_restriction",
@@ -152,6 +153,25 @@ def http_fetch(url: str, *, cfg: dict[str, Any]) -> FetchResult:
 
     completed = _clock()
     body = resp.content
+
+    # Apply magic-byte / suffix / HEAD classification (spec §4.2 step 3).
+    # Single fetch only — no second GET. We peek the first 1KB of the
+    # already-received body. The HEAD path lands in A.1.10.
+    # Empty body is falsy — skip magic-byte check and let the GET header win.
+    peek = body[:1024] if body else None
+    ct, src = classify_content_type(
+        url=url,
+        head_content_type=None,
+        peek_bytes=peek,
+        get_content_type=resp.headers.get("Content-Type"),
+    )
+    if ct is None:
+        # classify_content_type returned (None, None): either peek_bytes didn't
+        # begin with %PDF, or the server sent no Content-Type at all.
+        # Fall back to the raw GET header to preserve whatever the server said.
+        ct = resp.headers.get("Content-Type")
+        src = "get_header" if ct else None
+
     # redirect_chain is empty when no 3xx redirects occurred. URL normalization
     # by the server (e.g., adding a trailing slash) without a 3xx is signaled
     # by `final_url != requested_url`, NOT by a non-empty redirect_chain.
@@ -161,6 +181,45 @@ def http_fetch(url: str, *, cfg: dict[str, Any]) -> FetchResult:
 
     sha = hashlib.sha256(body).hexdigest()
 
+    # Spec §4.2 step 5: HTML response — check for challenge markers BEFORE returning.
+    # Cloudflare/DataDome/PerimeterX detection runs on raw HTML (preserves <script> tags
+    # so markers like __cf_chl_jschl_tk__ stay visible). See is_challenge_page() in detect.py.
+    is_html = (ct or "").lower().startswith("text/html")
+    if is_html:
+        title_match, marker = is_challenge_page(
+            body,
+            http_status=resp.status_code,
+            extra_markers=fc["detection"]["challenge_markers"],
+        )
+        if title_match or marker is not None:
+            if fc["return_blocked_content"]:
+                # Surface the partial FetchResult so the caller can inspect.
+                return FetchResult(
+                    requested_url=url,
+                    final_url=resp.url,
+                    redirect_chain=redirect_chain,
+                    started_at=started,
+                    completed_at=completed,
+                    content=body,
+                    content_type=ct,
+                    content_type_source=src,
+                    encoding=_charset_from_content_type(resp),
+                    content_length_bytes=len(body),
+                    content_hash_sha256=sha,
+                    http_status=resp.status_code,
+                    fetch_method="http",
+                    error_category="bot_challenge",
+                    headers={k.lower(): v for k, v in resp.headers.items()},
+                    etag=resp.headers.get("etag"),
+                    last_modified=resp.headers.get("last-modified"),
+                )
+            raise FetchError(
+                "bot_challenge",
+                f"challenge page detected on {url}",
+                title_match=title_match,
+                marker=marker,
+            )
+
     return FetchResult(
         requested_url=url,
         final_url=resp.url,
@@ -168,8 +227,8 @@ def http_fetch(url: str, *, cfg: dict[str, Any]) -> FetchResult:
         started_at=started,
         completed_at=completed,
         content=body,
-        content_type=resp.headers.get("Content-Type"),
-        content_type_source="get_header" if resp.headers.get("Content-Type") else None,
+        content_type=ct,
+        content_type_source=src,
         encoding=_charset_from_content_type(resp),
         content_length_bytes=len(body),
         content_hash_sha256=sha,

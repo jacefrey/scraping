@@ -1,9 +1,12 @@
 """HTTP path tests — mocked requests transport (spec §4.1, §4.2)."""
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
 from requests.structures import CaseInsensitiveDict
 from webfetch.http import http_fetch
 from webfetch.result import FetchError
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def _mock_response(status=200, body=b"<html><body>hi</body></html>",
@@ -210,3 +213,102 @@ def test_503_honors_retry_after():
     assert result.http_status == 200
     sleep.assert_any_call(10)
     assert do_get.call_count == 2
+
+
+def test_magic_byte_detects_pdf_via_streamed_peek():
+    """URL has no .pdf suffix and no HEAD content-type, but body starts with %PDF.
+    Skill should classify as PDF without issuing a second GET."""
+    cfg = _baseline_cfg()
+    pdf_bytes = b"%PDF-1.4\n%binary\n" + b"\x00" * 200
+    fake = _mock_response(
+        body=pdf_bytes,
+        headers={"Content-Type": "application/octet-stream"},
+        url="https://example.com/download/file",
+    )
+    with patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = fake
+        result = http_fetch("https://example.com/download/file", cfg=cfg)
+    assert result.content_type == "application/pdf"
+    assert result.content_type_source == "magic_bytes"
+    assert do_get.call_count == 1
+
+
+def test_magic_byte_html_body_routes_as_html():
+    """Body does NOT start with %PDF — should be treated as HTML, no re-fetch."""
+    cfg = _baseline_cfg()
+    fake = _mock_response(
+        body=b"<!DOCTYPE html><html><body>article</body></html>",
+        headers={"Content-Type": "application/octet-stream"},
+        url="https://example.com/x",
+    )
+    with patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = fake
+        result = http_fetch("https://example.com/x", cfg=cfg)
+    assert result.content_type != "application/pdf"
+    assert do_get.call_count == 1
+
+
+def test_pdf_url_suffix_classified_without_peek():
+    cfg = _baseline_cfg()
+    fake = _mock_response(
+        body=b"%PDF-1.4\n",
+        headers={"Content-Type": "application/pdf"},
+        url="https://example.com/file.pdf",
+    )
+    with patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = fake
+        result = http_fetch("https://example.com/file.pdf", cfg=cfg)
+    # url_suffix wins over head per detect.py priority
+    assert result.content_type == "application/pdf"
+    assert result.content_type_source in ("url_suffix", "head")
+
+
+def test_cloudflare_challenge_raises_bot_challenge():
+    cfg = _baseline_cfg()
+    challenge_html = (FIXTURES_DIR / "cloudflare-challenge.html").read_bytes()
+    fake = _mock_response(
+        body=challenge_html,
+        headers={"Content-Type": "text/html"},
+        status=200,
+    )
+    with patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = fake
+        with pytest.raises(FetchError) as exc:
+            http_fetch("https://example.com/", cfg=cfg)
+    assert exc.value.error_category == "bot_challenge"
+
+
+def test_return_blocked_content_yields_partial():
+    cfg = _baseline_cfg()
+    cfg["fetch"]["return_blocked_content"] = True
+    challenge_html = (FIXTURES_DIR / "cloudflare-challenge.html").read_bytes()
+    fake = _mock_response(body=challenge_html, status=200)
+    with patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = fake
+        result = http_fetch("https://example.com/", cfg=cfg)
+    assert result.error_category == "bot_challenge"
+    assert result.content == challenge_html
+
+
+def test_clean_page_no_challenge_flag():
+    cfg = _baseline_cfg()
+    clean_html = (FIXTURES_DIR / "static-blog.html").read_bytes()
+    fake = _mock_response(body=clean_html, status=200)
+    with patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = fake
+        result = http_fetch("https://example.com/", cfg=cfg)
+    assert result.error_category is None
+
+
+def test_extra_challenge_markers_from_config():
+    """Custom marker passed via config is detected end-to-end."""
+    cfg = _baseline_cfg()
+    cfg["fetch"]["detection"]["challenge_markers"] = ["Imperva-Incapsula-Block"]
+    body = (b"<!DOCTYPE html><html><head><title>Page</title></head>"
+            b"<body>Imperva-Incapsula-Block triggered</body></html>")
+    fake = _mock_response(body=body, headers={"Content-Type": "text/html"}, status=200)
+    with patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = fake
+        with pytest.raises(FetchError) as exc:
+            http_fetch("https://example.com/", cfg=cfg)
+    assert exc.value.error_category == "bot_challenge"
