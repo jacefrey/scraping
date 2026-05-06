@@ -42,6 +42,16 @@ def _do_get(url: str, *, timeout: float, headers: dict[str, str],
                  allow_redirects=allow_redirects)
 
 
+def _do_head(url: str, *, timeout: float, headers: dict[str, str],
+             max_redirects: int) -> requests.Response:
+    """HEAD pre-flight wrapper. Failure here is non-fatal — caller catches
+    and falls through to GET (spec §4.2 step 2). max_redirects matches
+    the GET path for consistency."""
+    s = requests.Session()
+    s.max_redirects = max_redirects
+    return s.head(url, timeout=timeout, headers=headers, allow_redirects=True)
+
+
 def http_fetch(url: str, *, cfg: dict[str, Any]) -> FetchResult:
     fc = cfg["fetch"]
     started = _clock()
@@ -59,6 +69,20 @@ def http_fetch(url: str, *, cfg: dict[str, Any]) -> FetchResult:
     server_error_attempt = 0
     SERVER_ERROR_RETRIES = 1  # spec §4.3: 1 retry after 5 s
     SERVER_ERROR_BACKOFF_DEFAULT = 5
+
+    # Spec §4.2 step 2: optional HEAD pre-flight to get cheap content-type hint.
+    # HEAD is a hint only — never poison the result. Servers that block HEAD
+    # or networks that fail must fall through silently to the GET path.
+    head_content_type: str | None = None
+    if fc["use_head"]:
+        try:
+            h = _do_head(url, timeout=fc["head_timeout_s"], headers=headers,
+                         max_redirects=fc["max_redirects"])
+            if 200 <= h.status_code < 400:
+                head_content_type = h.headers.get("Content-Type")
+        except Exception:
+            head_content_type = None
+
     resp = None
     while True:
         try:
@@ -161,7 +185,7 @@ def http_fetch(url: str, *, cfg: dict[str, Any]) -> FetchResult:
     peek = body[:1024] if body else None
     ct, src = classify_content_type(
         url=url,
-        head_content_type=None,
+        head_content_type=head_content_type,
         peek_bytes=peek,
         get_content_type=resp.headers.get("Content-Type"),
     )

@@ -312,3 +312,50 @@ def test_extra_challenge_markers_from_config():
         with pytest.raises(FetchError) as exc:
             http_fetch("https://example.com/", cfg=cfg)
     assert exc.value.error_category == "bot_challenge"
+
+
+def test_head_pdf_short_circuits_via_classifier():
+    """HEAD returns application/pdf — classifier should pick it up."""
+    cfg = _baseline_cfg()
+    cfg["fetch"]["use_head"] = True
+    head_resp = MagicMock(
+        status_code=200,
+        headers=CaseInsensitiveDict({"Content-Type": "application/pdf"}),
+        url="https://example.com/file",
+    )
+    get_resp = _mock_response(
+        body=b"%PDF-1.4\n",
+        headers={"Content-Type": "application/pdf"},
+        url="https://example.com/file",
+    )
+    with patch("webfetch.http._do_head") as do_head, \
+         patch("webfetch.http._do_get") as do_get:
+        do_head.return_value = head_resp
+        do_get.return_value = get_resp
+        result = http_fetch("https://example.com/file", cfg=cfg)
+    assert result.content_type == "application/pdf"
+    # URL has no .pdf suffix; source should be "head" (HEAD wins over magic_bytes per detect.py priority)
+    assert result.content_type_source in ("head", "magic_bytes")
+
+
+def test_head_failure_does_not_block_get():
+    cfg = _baseline_cfg()
+    cfg["fetch"]["use_head"] = True
+    with patch("webfetch.http._do_head",
+               side_effect=_requests.exceptions.RequestException("HEAD blocked")), \
+         patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = _mock_response()
+        result = http_fetch("https://example.com/", cfg=cfg)
+    assert result.http_status == 200
+
+
+def test_head_disabled_via_config_skips_head_call():
+    """When use_head=False, HEAD should not be attempted at all."""
+    cfg = _baseline_cfg()
+    cfg["fetch"]["use_head"] = False
+    with patch("webfetch.http._do_head") as do_head, \
+         patch("webfetch.http._do_get") as do_get:
+        do_get.return_value = _mock_response()
+        result = http_fetch("https://example.com/", cfg=cfg)
+    do_head.assert_not_called()
+    assert result.http_status == 200
