@@ -1,0 +1,83 @@
+[fetch]
+http_timeout_s = 10
+http_thin_threshold_bytes = 2048
+network_retries = 3                        # DNS / TLS / connection-refused failures only — does NOT cover timeouts (see http_timeout_retries below)
+http_timeout_retries = 2                   # HTTP timeouts are often transient; retry 2x by default
+use_head = true
+head_timeout_s = 5
+magic_byte_peek_timeout_s = 5              # see §4.2 step 3 — protects the streamed PDF-vs-HTML peek against hung servers
+user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ..."
+max_redirects = 20
+return_blocked_content = false             # default; per-call override available
+
+[fetch.parse_safety]
+max_response_bytes = 50_000_000            # raw bytes cap — raises `response_too_large` past this
+max_decoded_bytes = 200_000_000            # post-gzip/deflate cap — raises `decoded_body_too_large` (compression bombs)
+max_html_text_chars = 5_000_000            # parser-stage cap on visible text — raises `html_parse_safety`
+
+[fetch.detection]
+# Challenge-page markers used in §4.2 step 5. Internal defaults cover the
+# big three (Cloudflare, DataDome, PerimeterX); per-domain or per-deployment
+# additions belong here.
+challenge_markers = []                     # extra markers appended to the built-in list; e.g. ["Imperva Incapsula"]
+
+[fetch.politeness]
+# Per-host politeness — each host has an independent delay timer.
+# A 500 ms global delay would unnecessarily slow unrelated hosts; per-host
+# delays do what's actually intended (don't hammer one site).
+min_delay_ms_per_host = 500                # min interval BETWEEN fetches to the same host within a single process
+respect_retry_after = true                 # honor Retry-After on 429/503
+max_retry_after_s = 120                    # cap server-requested delay
+
+# IMPORTANT: politeness is per-process. Multi-process bulk callers
+# coordinate their own cross-process rate limits (shared lock, redis,
+# or external scheduler) — that's out of scope for this skill.
+
+[fetch.compression]
+# requests auto-decodes gzip/deflate. content_hash_sha256 hashes the
+# DECODED body that downstream converters see (not the wire bytes).
+# A future `wire_hash_sha256` could be added if wire-level audit ever
+# becomes a requirement; not now.
+
+[fetch.playwright]
+timeout_s = 30
+playwright_timeout_retries = 1
+wait_for = "networkidle"                   # or "domcontentloaded" / "load" — see note below
+wait_for_selector = ""                     # optional CSS selector for stubborn JS-rendered content
+extensions = []                            # FUTURE: paths to unpacked Chromium extensions
+headless = true                            # auto-set False if extensions populated
+max_redirects = 20                         # raise FetchError(redirect_loop) past this
+
+# Note on `wait_for = "networkidle"`: networkidle waits for <500 ms of network
+# silence, which never triggers on pages with continuous analytics, ads, or
+# long-polling. For analytics-heavy sites, `domcontentloaded` + a `wait_for_selector`
+# pointing at the article body is faster and more reliable. Default stays at
+# networkidle for typical pages; per-domain override (below) handles noisy sites.
+
+# Conditional GET reservation (v0.2 — accepted-but-ignored in MVP).
+# In MVP, `fetch()` accepts `if_none_match=` / `if_modified_since=` arguments and ignores them.
+# In v0.2, when populated and `[fetch.conditional_get].enabled = true`, web-fetch will:
+#   - set `If-None-Match` / `If-Modified-Since` request headers
+#   - on 304 response, return a FetchResult with:
+#       result.http_status = 304
+#       result.not_modified = True
+#       result.content = b""
+#       result.content_hash_sha256 = None
+#       result.etag / result.last_modified populated from the 304 response
+# Defining the future shape now keeps consumers' code stable across the upgrade.
+# AAA-radio's weekly chart fetch is the obvious first consumer once implemented.
+[fetch.conditional_get]
+enabled = false
+
+# Optional per-domain overrides. Each entry pins a host to a specific fetch method
+# and skips the heuristic ladder for that domain. Useful when the heuristic
+# misfires consistently for a known target.
+# [[fetch.domain_overrides]]
+# host = "example-spa.com"
+# fetch_method = "playwright"
+# wait_for = "domcontentloaded"
+# wait_for_selector = ".main-article"
+#
+# [[fetch.domain_overrides]]
+# host = "static-blog.com"
+# fetch_method = "http"
