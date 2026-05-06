@@ -1561,23 +1561,30 @@ Each converter (`webpage-to-md`, `webpage-to-pdf`) appends one row to a `manifes
 
 The manifest is the natural input for a future `web-archive` skill — out of scope for MVP, but the manifest format is designed to support it without rework.
 
-### 8.11 Bundle convention
+### 8.11 Distribution: Claude Code plugin marketplace
 
-Each skill gets a transport bundle in `bundles/`:
+**Updated 2026-05-05.** This family is distributed as a single Claude Code plugin named `scraping`, hosted at `github:jacefrey/scraping`. The four skills live at `<plugin>/skills/<name>/` inside that repo. The plugin manifest at `.claude-plugin/plugin.json` declares the plugin; `.claude-plugin/marketplace.json` declares a single-plugin marketplace pointing at the same repo (writers-room convention).
 
-```
-bundles/
-  web-fetch-skill/web-fetch/...        # mirror of ~/.claude/skills/web-fetch/
-  web-fetch-skill.zip
-  webpage-to-md-skill/...
-  webpage-to-md-skill.zip
-  webpage-to-pdf-skill/...
-  webpage-to-pdf-skill.zip
-  apify-runner-skill/...
-  apify-runner-skill.zip
+Consumers install via:
+
+```bash
+claude plugin marketplace add jacefrey/scraping
+claude plugin install scraping@scraping
 ```
 
-Built via `rsync -a --delete --exclude='__pycache__' ...` then `zip -qr`. Manual rebuild on ship is the established convention.
+After install, skills become invokable as `scraping:web-fetch`, `scraping:webpage-to-md`, `scraping:webpage-to-pdf`, `scraping:apify-runner`. Claude Code caches the plugin at `~/.claude/plugins/cache/scraping/scraping/<version>/`.
+
+**Local development.** Clone the plugin repo into `~/Dropbox/projects/scraping/` (or wherever) and symlink each skill into `~/.claude/skills/` so Phase C migrations and ad-hoc Python imports keep working without an install round-trip:
+
+```bash
+ln -sf "$(pwd)/skills/web-fetch" ~/.claude/skills/web-fetch
+```
+
+The `skill_imports.py` invariant (§8.1, `parents[2].name == "skills"`) holds in either context — the symlink doesn't change `parents[2]` resolution because `realpath` walks through the symlink target.
+
+**Versioning.** Plugin version is set in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (must match). Bump on every change that affects what consumers see. Per-skill versions are tracked separately in each skill's `__init__.__version__` (§8.6) and surfaced in tags as `<skill>--v<version>` (matches the format `claude plugin tag` expects).
+
+**Retired pattern (pre-2026-05-05).** Earlier drafts of this spec specified per-skill `bundles/<skill>-skill.zip` rsync+zip transport bundles built and shipped from a separate orchestration project. That mechanism is fully retired; the plugin marketplace replaces it. Do not write new code that consumes or produces `bundles/<skill>-skill.zip` artifacts.
 
 ### 8.12 Cross-references in SKILL.md
 
@@ -1601,7 +1608,7 @@ These have no upstream dependencies and can be built independently — could eve
 **Each ships when:**
 - Unit tests pass (mocked, no network)
 - Manual integration smoke (`fetch("https://example.com")` returns 200 + HTML; an Apify run with a free actor succeeds)
-- `bundles/<skill>-skill.zip` rebuilt
+- Per-skill version tag pushed to the plugin repo (`<skill>--v<version>` per §8.11) and the marketplace install path resolves the skill
 
 ### 9.2 Phase B — Build mid-layer skills (still no consumer changes)
 
@@ -1613,7 +1620,7 @@ Depend on Phase A leaves. Build sequentially. Build `webpage-to-md` first — Ma
 | B.1' | **`pdf-to-markdown` contract change (cross-skill)** | Add `merge_provenance: dict | None = None` kwarg to `pdf_to_markdown.process()`. When set, prepend the dict to the produced MD's frontmatter (PDF-internal metadata wins on key collisions for `title`/`author`); return the merged dict on `PdfMdResult.frontmatter`. Required for B.1's PDF passthrough to produce coherent merged frontmatter without `webpage-to-md` importing PyMuPDF directly (§5.9). Ships in the same Phase B window as B.1; tracked separately because it modifies an existing skill. | ~0.25 session |
 | B.2 | **`webpage-to-pdf`** | Playwright print-to-PDF with `"continuous"` (single-tall-page) default; CSS-injection via JS `getComputedStyle()` walk for sticky flattening (§6.6); incremental scroll loop for lazy-load (§6.5); `live` and `captured_html` render modes (§6.2) including `<base href>` injection in captured mode; live-mode `<stem>.rendered.html` persistence (§6.2); article-mode `selector` (§6.1); `strip_selectors` config for cookie-banner / chat-widget removal (§6.6); precedence rule for sticky options (§6.6). | ~1 session |
 
-**Each ships when:** Unit + integration tests green per the per-skill acceptance gates in §9.5, both URL-input and local-input paths exercised, bundle rebuilt. (Phase B.1's gate explicitly includes the new `merge_provenance` round-trip via B.1'.)
+**Each ships when:** Unit + integration tests green per the per-skill acceptance gates in §9.5, both URL-input and local-input paths exercised, plugin tag pushed (per §8.11). (Phase B.1's gate explicitly includes the new `merge_provenance` round-trip via B.1'.)
 
 ### 9.3 Phase C — Migrate consumers (one at a time, carefully)
 

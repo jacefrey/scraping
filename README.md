@@ -10,15 +10,15 @@ A Claude Code plugin bundling four web-scraping skills:
 ## Installation
 
 ```bash
-claude marketplace add github:jacefrey/scraping
-claude plugin add scraping@scraping
+claude plugin marketplace add jacefrey/scraping
+claude plugin install scraping@scraping
 ```
 
 After installation, skills are available as `scraping:web-fetch`, `scraping:webpage-to-md`, etc.
 
 ## Boundaries
 
-These skills do **not** implement stealth browser fingerprinting, CAPTCHA solving, credential replay, TLS/JA3 impersonation, or anti-bot evasion. See `docs/spec.md` §1.5 for the full non-goals.
+These skills do **not** implement stealth browser fingerprinting, CAPTCHA solving, credential replay, TLS/JA3 impersonation, or anti-bot evasion. See [docs/superpowers/specs/2026-05-03-scraping-design.md](docs/superpowers/specs/2026-05-03-scraping-design.md) §1.5 for the full non-goals.
 
 ## Status
 
