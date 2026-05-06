@@ -23,12 +23,13 @@ class _EnvAutodiscoverSentinel:
 
 ENV_AUTODISCOVER = _EnvAutodiscoverSentinel()
 
-# `run` imported here for public API; defined in runner.py to avoid
-# load-order issues (runner imports from result/errors/client/config/env).
-from apify_runner.runner import run  # noqa: E402
+# `run`, `attach_to`, and `iter_items` imported here for public API; defined
+# elsewhere to avoid load-order issues (they import from result/errors/client/etc).
+from apify_runner.runner import run, attach_to  # noqa: E402
+from apify_runner.iter_items import iter_items  # noqa: E402
 
 __all__ = [
-    "run",
+    "run", "attach_to", "iter_items",
     "ApifyRunResult", "ApifyError", "ApifyAuthError",
     "ApifyActorNotFoundError", "ApifyRunFailedError",
     "ApifyTimeoutError", "ApifyBudgetExceededError",
