@@ -5,8 +5,9 @@ retrieve the dataset, return a typed result. Used by `linkedin` (and any
 future consumer that needs to scrape behind enterprise blocking).
 
 **Prerequisites:**
+
 - python.org Python 3.12 at `/Library/Frameworks/Python.framework/Versions/3.12/`
-- An Apify API token from https://console.apify.com/account/integrations
+- An Apify API token from <https://console.apify.com/account/integrations>
 - A `.env` file (mode 600) holding `APIFY_API_TOKEN=...` OR the same env-var exported in the shell
 
 No pip dependencies. The skill uses only stdlib (`urllib.request`,

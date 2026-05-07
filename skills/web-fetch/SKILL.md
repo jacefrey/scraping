@@ -5,6 +5,7 @@ underneath the rest of the `scraping` plugin (`webpage-to-md`, `webpage-to-pdf`,
 and direct consumers).
 
 **Prerequisites:**
+
 - python.org Python 3.12 at `/Library/Frameworks/Python.framework/Versions/3.12/`
 - `requests` (`pip install --user requests`)
 - `playwright` + Chromium (`pip install --user playwright && playwright install chromium`)
