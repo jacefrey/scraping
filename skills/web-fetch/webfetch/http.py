@@ -175,8 +175,41 @@ def http_fetch(url: str, *, cfg: dict[str, Any]) -> FetchResult:
                              http_status=resp.status_code)
         break
 
+    # Spec §4.3: parse_safety caps. max_response_bytes is a Content-Length
+    # pre-check (best effort — bails on cooperative servers before reading
+    # the body); max_decoded_bytes guards the actual buffered size after
+    # requests has auto-decompressed transfer encoding. With the current
+    # non-streaming GET, the body is already in memory by the time _do_get
+    # returns, so these caps are post-hoc safety rails rather than OOM
+    # prevention. Switching to streaming would harden them further; deferred.
+    ps = fc["parse_safety"]
+    cl_header = resp.headers.get("Content-Length")
+    if cl_header is not None:
+        try:
+            cl = int(cl_header)
+        except ValueError:
+            cl = None
+        if cl is not None and cl > ps["max_response_bytes"]:
+            raise FetchError(
+                "response_too_large",
+                f"Content-Length {cl} exceeds max_response_bytes "
+                f"{ps['max_response_bytes']} on {url}",
+                http_status=resp.status_code,
+                content_length=cl,
+                max_response_bytes=ps["max_response_bytes"],
+            )
+
     completed = _clock()
     body = resp.content
+    if len(body) > ps["max_decoded_bytes"]:
+        raise FetchError(
+            "decoded_body_too_large",
+            f"decoded body {len(body)} exceeds max_decoded_bytes "
+            f"{ps['max_decoded_bytes']} on {url}",
+            http_status=resp.status_code,
+            decoded_bytes=len(body),
+            max_decoded_bytes=ps["max_decoded_bytes"],
+        )
 
     # Apply magic-byte / suffix / HEAD classification (spec §4.2 step 3).
     # Single fetch only — no second GET. We peek the first 1KB of the

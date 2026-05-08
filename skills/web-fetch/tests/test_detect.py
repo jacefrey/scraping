@@ -77,6 +77,7 @@ def test_url_pdf_with_query_string():
 
 
 from pathlib import Path
+import pytest
 from webfetch.detect import is_thin_shell, is_challenge_page
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -90,6 +91,18 @@ def test_thin_shell_detects_next_app():
 def test_thin_shell_passes_static_article():
     html = (FIXTURES / "static-blog.html").read_bytes()
     assert is_thin_shell(html, http_thin_threshold_bytes=2048) is False
+
+
+def test_thin_shell_raises_html_parse_safety_when_text_exceeds_cap():
+    """Spec §4.3: visible-text extraction past max_html_text_chars → FetchError(html_parse_safety)."""
+    from webfetch.result import FetchError
+    big_text = b"<html><body>" + (b"word " * 100_000) + b"</body></html>"
+    with pytest.raises(FetchError) as exc:
+        is_thin_shell(big_text, http_thin_threshold_bytes=2048,
+                      max_html_text_chars=10_000)
+    assert exc.value.error_category == "html_parse_safety"
+    assert exc.value.context["max_html_text_chars"] == 10_000
+    assert exc.value.context["visible_text_chars"] > 10_000
 
 
 def test_challenge_detection_cloudflare():

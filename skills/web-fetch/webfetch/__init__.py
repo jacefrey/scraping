@@ -91,8 +91,16 @@ def fetch(
         FetchResult on success or surfaced partial.
 
     Raises:
+        ValueError if fetch_method is not one of "auto" / "http" / "playwright".
         FetchError on terminal failure. See result.FetchError.error_category.
     """
+    # Argument validation first — fail fast before any cfg load, politeness
+    # sleep, or network side effect. Mirrors apify-runner's run() pattern.
+    if fetch_method not in ("auto", "http", "playwright"):
+        raise ValueError(
+            f'fetch_method must be "auto", "http", or "playwright"; '
+            f"got {fetch_method!r}"
+        )
     if cfg is None:
         cfg = load_config()
     if return_blocked_content:
@@ -120,6 +128,7 @@ def fetch(
         and is_thin_shell(
             result.content,
             http_thin_threshold_bytes=cfg["fetch"]["http_thin_threshold_bytes"],
+            max_html_text_chars=cfg["fetch"]["parse_safety"]["max_html_text_chars"],
         )
     ):
         return playwright_fetch(url, cfg=cfg)

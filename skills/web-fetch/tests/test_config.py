@@ -15,7 +15,6 @@ def test_defaults_when_no_toml(tmp_path, monkeypatch):
     assert cfg["fetch"]["use_head"] is True
     assert cfg["fetch"]["max_redirects"] == 20
     assert cfg["fetch"]["return_blocked_content"] is False
-    assert cfg["fetch"]["magic_byte_peek_timeout_s"] == 5
     assert cfg["fetch"]["parse_safety"]["max_response_bytes"] == 50_000_000
     assert cfg["fetch"]["politeness"]["min_delay_ms_per_host"] == 500
     assert cfg["fetch"]["playwright"]["timeout_s"] == 30

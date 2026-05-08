@@ -125,6 +125,19 @@ def test_auto_substantial_html_no_playwright_fallback():
     assert result.fetch_method == "http"
 
 
+def test_fetch_method_typo_raises_value_error():
+    """Invalid fetch_method (e.g. typo "playright") must fail fast — no auth,
+    no politeness sleep, no dispatch."""
+    with patch("webfetch.http_fetch") as hf, \
+         patch("webfetch.playwright_fetch") as pf, \
+         patch("webfetch.politeness.time.sleep") as sleep_mock:
+        with pytest.raises(ValueError, match="fetch_method must be"):
+            fetch("https://example.com/", fetch_method="playright")
+    hf.assert_not_called()
+    pf.assert_not_called()
+    sleep_mock.assert_not_called()
+
+
 def test_return_blocked_content_passes_to_dispatch():
     """return_blocked_content=True flows into the cfg passed to http_fetch
     WITHOUT mutating the caller's cfg dict."""

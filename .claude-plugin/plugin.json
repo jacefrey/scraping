@@ -1,7 +1,7 @@
 {
   "name": "scraping",
   "description": "URL→bytes (web-fetch), URL→Markdown (webpage-to-md), URL→PDF (webpage-to-pdf), and stdlib-only Apify v2 client (apify-runner). Built for macOS 13 Intel.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "Jace Frey"
   },

@@ -359,3 +359,61 @@ def test_head_disabled_via_config_skips_head_call():
         result = http_fetch("https://example.com/", cfg=cfg)
     do_head.assert_not_called()
     assert result.http_status == 200
+
+
+# parse_safety caps (spec §4.3) -------------------------------------------------
+
+def test_response_too_large_via_content_length():
+    """Server-declared Content-Length above max_response_bytes → response_too_large.
+    Best-effort gate: cooperative servers let us bail before reading the body."""
+    cfg = _baseline_cfg()
+    cfg["fetch"]["parse_safety"]["max_response_bytes"] = 1000
+    fake = _mock_response(headers={
+        "Content-Type": "text/html",
+        "Content-Length": "100000000",
+    })
+    with patch("webfetch.http._do_get") as do_get, \
+         patch("webfetch.http._do_head") as do_head:
+        do_get.return_value = fake
+        do_head.return_value = MagicMock(status_code=200, headers=CaseInsensitiveDict({}))
+        with pytest.raises(FetchError) as exc:
+            http_fetch("https://example.com/", cfg=cfg)
+    assert exc.value.error_category == "response_too_large"
+    assert exc.value.context["content_length"] == 100000000
+    assert exc.value.context["max_response_bytes"] == 1000
+
+
+def test_decoded_body_too_large_when_no_content_length():
+    """Body exceeds max_decoded_bytes with no Content-Length header to gate
+    the read pre-emptively → decoded_body_too_large after buffering."""
+    cfg = _baseline_cfg()
+    cfg["fetch"]["parse_safety"]["max_decoded_bytes"] = 100
+    big_body = b"<html>" + b"x" * 10_000 + b"</html>"
+    fake = _mock_response(body=big_body, headers={"Content-Type": "text/html"})
+    with patch("webfetch.http._do_get") as do_get, \
+         patch("webfetch.http._do_head") as do_head:
+        do_get.return_value = fake
+        do_head.return_value = MagicMock(status_code=200, headers=CaseInsensitiveDict({}))
+        with pytest.raises(FetchError) as exc:
+            http_fetch("https://example.com/", cfg=cfg)
+    assert exc.value.error_category == "decoded_body_too_large"
+    assert exc.value.context["decoded_bytes"] == len(big_body)
+
+
+def test_parse_safety_caps_pass_under_threshold():
+    """Body under both caps → returns normally."""
+    cfg = _baseline_cfg()
+    cfg["fetch"]["parse_safety"]["max_response_bytes"] = 1_000_000
+    cfg["fetch"]["parse_safety"]["max_decoded_bytes"] = 1_000_000
+    body = b"<html><body>tiny</body></html>"
+    fake = _mock_response(body=body, headers={
+        "Content-Type": "text/html",
+        "Content-Length": str(len(body)),
+    })
+    with patch("webfetch.http._do_get") as do_get, \
+         patch("webfetch.http._do_head") as do_head:
+        do_get.return_value = fake
+        do_head.return_value = MagicMock(status_code=200, headers=CaseInsensitiveDict({}))
+        result = http_fetch("https://example.com/", cfg=cfg)
+    assert result.error_category is None
+    assert result.content == body

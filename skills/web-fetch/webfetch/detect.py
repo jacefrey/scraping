@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
+from webfetch.result import FetchError
+
 
 def classify_content_type(
     *,
@@ -115,9 +117,17 @@ def is_challenge_page(
     return title_match, body_marker
 
 
-def is_thin_shell(raw_html: bytes, http_thin_threshold_bytes: int) -> bool:
+def is_thin_shell(
+    raw_html: bytes,
+    http_thin_threshold_bytes: int,
+    max_html_text_chars: int | None = None,
+) -> bool:
     """Spec §4.2 step 6: framework markers checked on raw HTML; text-content
     signal checked on tag-stripped HTML. Byte-count signal is secondary.
+
+    When max_html_text_chars is set (spec §4.3 parse_safety), raise
+    FetchError("html_parse_safety") if the visible-text extraction exceeds
+    the cap — the parser-stage rail against pathological HTML.
     """
     # Framework markers must be checked BEFORE tag stripping
     if any(m in raw_html for m in _FRAMEWORK_MARKERS):
@@ -128,7 +138,18 @@ def is_thin_shell(raw_html: bytes, http_thin_threshold_bytes: int) -> bool:
     no_styles = _STYLE_RE.sub(b"", no_scripts)
     text_only = _TAG_RE.sub(b" ", no_styles)
     visible = text_only.decode("utf-8", errors="ignore").split()
-    if sum(len(w) for w in visible) < 200 and len(raw_html) > 100:
+    total_chars = sum(len(w) for w in visible)
+
+    if max_html_text_chars is not None and total_chars > max_html_text_chars:
+        raise FetchError(
+            "html_parse_safety",
+            f"visible text {total_chars} chars exceeds max_html_text_chars "
+            f"{max_html_text_chars}",
+            visible_text_chars=total_chars,
+            max_html_text_chars=max_html_text_chars,
+        )
+
+    if total_chars < 200 and len(raw_html) > 100:
         return True
 
     # Byte-count signal: very small responses

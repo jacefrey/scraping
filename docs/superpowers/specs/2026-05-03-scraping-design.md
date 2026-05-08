@@ -184,8 +184,8 @@ result.playwright_details     # dict: wait_strategy, wait_for_selector, scroll_p
 2. **HEAD request** (if `use_head = true` — default) to get `Content-Type` cheaply. HEAD is treated only as a hint; never let a bad HEAD response poison the result. Servers that mishandle HEAD will get an automatic fall-through to GET; the toggle exists for sites that block HEAD entirely.
 3. **PDF detection**:
    - If `Content-Type` (from HEAD or URL suffix) is `application/pdf`, OR URL path ends in `.pdf` -> fetch and return as PDF.
-   - **Magic-byte fallback (streamed, single-fetch):** when content type is unknown, issue `requests.get(url, stream=True, timeout=magic_byte_peek_timeout_s)` (default `5 s`). Peek the first 1 KB. If it begins with `b'%PDF'` -> continue reading the same stream into a full download (treat as PDF). If not -> **continue reading the same response body into memory** (subject to `max_response_bytes` / `max_decoded_bytes` caps from `[fetch.parse_safety]`), then route as HTML in step 5. Do not issue a second GET. Aborting the stream and re-fetching loses request context and doubles network cost; reading the same body forward is cheaper and preserves a single redirect chain.
-   - The peek timeout protects against slow servers that hang on the first chunk; on timeout, raise `FetchError(error_category="timeout")`.
+   - **Magic-byte fallback (single-fetch, buffered-prefix peek):** when content type is unknown, issue a normal `requests.get(url)` under `http_timeout_s` (default `10 s`). After the body buffers, peek the first 1 KB. If it begins with `b'%PDF'` -> classify as PDF (full body already in memory). If not -> route as HTML in step 5 (full body subject to `max_response_bytes` / `max_decoded_bytes` caps from `[fetch.parse_safety]`). Do not issue a second GET — the body is already on the wire; aborting and re-fetching would lose request context and double network cost.
+   - **Implementation note:** the spec used to call for a streamed GET with a per-request `magic_byte_peek_timeout_s` knob. That distinction was dropped in v0.1.0 — the practical effect (1 KB prefix scan of an already-buffered body) is identical to the streamed version for classification purposes, and the implementation is simpler. The peek does NOT have its own timeout; it is bounded by `http_timeout_s` like every other GET.
    - Either path sets `content_type_source = "magic_bytes"` or `"url_suffix"` accordingly.
 4. **Non-HTML binary** (image, zip, video, etc.): GET, return bytes. Done.
 5. **HTML, blocked-response check FIRST.** Before any thin-shell analysis, run **challenge-page detection on the raw HTML response** (preserving `<script>` tags so JSON markers stay visible). If any of these are present:
@@ -242,7 +242,6 @@ network_retries = 3                        # DNS / TLS / connection-refused fail
 http_timeout_retries = 2                   # HTTP timeouts are often transient; retry 2x by default
 use_head = true
 head_timeout_s = 5
-magic_byte_peek_timeout_s = 5              # see §4.2 step 3 — protects the streamed PDF-vs-HTML peek against hung servers
 user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ..."
 max_redirects = 20
 return_blocked_content = false             # default; per-call override available

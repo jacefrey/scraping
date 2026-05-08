@@ -14,7 +14,6 @@ _DEFAULTS: dict[str, Any] = {
         "http_timeout_retries": 2,
         "use_head": True,
         "head_timeout_s": 5,
-        "magic_byte_peek_timeout_s": 5,
         "user_agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "

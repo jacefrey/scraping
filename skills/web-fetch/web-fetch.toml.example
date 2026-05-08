@@ -5,7 +5,6 @@ network_retries = 3                        # DNS / TLS / connection-refused fail
 http_timeout_retries = 2                   # HTTP timeouts are often transient; retry 2x by default
 use_head = true
 head_timeout_s = 5
-magic_byte_peek_timeout_s = 5              # see §4.2 step 3 — protects the streamed PDF-vs-HTML peek against hung servers
 user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ..."
 max_redirects = 20
 return_blocked_content = false             # default; per-call override available
