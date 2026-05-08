@@ -7,7 +7,7 @@ from apify_runner.errors import (
     ApifyDatasetError,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 # Sentinel for env_file resolution (spec §7.3). Distinct from None so the

@@ -5,7 +5,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from apify_runner import ENV_AUTODISCOVER
 from apify_runner._clock import _clock
 from apify_runner.client import (
@@ -47,6 +47,7 @@ def _poll_and_collect(
     initial_status: str,
     initial_cost: float,
     started_at: datetime,
+    on_poll: Callable[[str, dict], None] | None,
 ) -> ApifyRunResult:
     """Shared polling loop + dataset retrieval used by run() and attach_to().
 
@@ -90,6 +91,13 @@ def _poll_and_collect(
         last_cost = float(pdata.get("usage", {}).get("totalUsd", last_cost))
         if pdata.get("finishedAt"):
             finished_at = _parse_apify_dt(pdata["finishedAt"])
+
+        # Per-poll progress callback (best-effort progress reporting).
+        # Fires after each fresh poll — including the terminal one — so the
+        # callback always sees the latest run state. Exceptions propagate:
+        # callback bugs should surface, not be silently swallowed.
+        if on_poll is not None:
+            on_poll(last_status, pdata)
 
         # Spec §7.7: budget gate (best-effort; reported usage lags actual cost).
         if max_cost_usd is not None:
@@ -203,8 +211,15 @@ def run(
     output_path: Path | None = None,
     env_file: Any = ENV_AUTODISCOVER,
     cfg: dict | None = None,
+    on_poll: Callable[[str, dict], None] | None = None,
 ) -> ApifyRunResult:
-    """Execute an Apify actor and return ApifyRunResult (spec §7.1)."""
+    """Execute an Apify actor and return ApifyRunResult (spec §7.1).
+
+    on_poll: optional callback invoked after each poll cycle with
+    (status: str, run_record: dict). The run_record matches Apify's
+    response payload (id, status, usage, stats, …). Useful for progress
+    logging on long-running batches. Exceptions propagate.
+    """
     # Argument validation first — fail fast before any auth or network side effects.
     if dataset_mode == "jsonl" and output_path is None:
         raise ValueError("dataset_mode='jsonl' requires output_path")
@@ -246,7 +261,7 @@ def run(
         max_cost_usd=max_cost_usd, cost_buffer_percent=cost_buffer_percent,
         dataset_mode=dataset_mode, output_path=output_path,
         initial_status=initial_status, initial_cost=initial_cost,
-        started_at=started_at,
+        started_at=started_at, on_poll=on_poll,
     )
 
 
@@ -262,6 +277,7 @@ def attach_to(
     output_path: Path | None = None,
     env_file: Any = ENV_AUTODISCOVER,
     cfg: dict | None = None,
+    on_poll: Callable[[str, dict], None] | None = None,
 ) -> ApifyRunResult:
     """Attach to an existing Apify run (spec §7.1).
 
@@ -269,6 +285,9 @@ def attach_to(
     — the caller has already paid for the existing run, this just resumes
     polling against it. Useful when the original run() timed out locally
     but the run is still going on Apify's infrastructure.
+
+    on_poll: same shape as run()'s — invoked per poll cycle with
+    (status, run_record).
     """
     if dataset_mode == "jsonl" and output_path is None:
         raise ValueError("dataset_mode='jsonl' requires output_path")
@@ -300,5 +319,5 @@ def attach_to(
         max_cost_usd=max_cost_usd, cost_buffer_percent=cost_buffer_percent,
         dataset_mode=dataset_mode, output_path=output_path,
         initial_status=initial_status, initial_cost=initial_cost,
-        started_at=started_at,
+        started_at=started_at, on_poll=on_poll,
     )

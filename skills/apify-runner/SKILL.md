@@ -45,10 +45,19 @@ result = run(
     output_path=None,             # required when dataset_mode="jsonl"
     env_file=ENV_AUTODISCOVER,    # default; walk to git-root for .env
     cfg=None,                     # optional pre-loaded config
+    on_poll=None,                 # optional (status, run_record) callback per poll
 )
 
 # Reconnect to an in-flight run later (no new POST, no extra cost):
 result = attach_to(saved_run_id, timeout_s=600)
+
+# Per-poll progress logging on long batches:
+def _poll_msg(status: str, record: dict) -> None:
+    elapsed = record.get("stats", {}).get("runTimeSecs", 0)
+    print(f"  [{status}] run {record.get('id','?')[-8:]} elapsed {elapsed:.0f}s",
+          file=sys.stderr)
+
+result = run(actor="...", input_data={...}, timeout_s=1800, on_poll=_poll_msg)
 
 # Iterate items (no API call by default):
 for item in iter_items(result):
