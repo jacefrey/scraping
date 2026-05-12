@@ -601,6 +601,19 @@ Caller-supplied `output_stem` overrides this entirely.
 
 ### 5.9 PDF passthrough behavior + provenance
 
+> **DEFERRED to v0.2 (decided 2026-05-12).** The PDF-passthrough branch — and
+> with it the `pdf-to-markdown.merge_provenance` cross-skill contract
+> described later in this section — is **not implemented in Phase B v0.1**.
+> v0.1 `webpage-to-md` handles PDF responses by saving `<stem>.pdf` to the
+> output directory and returning a result indicating no MD was generated;
+> the caller can run `pdf-to-markdown` separately if they want MD.
+> Rationale: the cross-skill contract requires adding a new public Python
+> entry point to `pdf-to-markdown` (the skill currently has no top-level
+> `process()` function — it's a multi-phase pipeline with an in-session
+> figure-description step), which is meaningful additional work without
+> a current driver. The text below preserves the v0.2 design for when
+> there is one.
+
 When `web-fetch` reports `content_type == "application/pdf"`:
 
 1. Write bytes to `output_dir/<stem>.pdf`. Source PDF preserved alongside the Markdown.
@@ -1389,7 +1402,7 @@ Same conceptual pattern OCR already uses for `sanitize-names`. Codified in `feed
 | `webpage-to-pdf` | `beautifulsoup4`, `pyyaml` (Playwright reused via `web-fetch`) | `web-fetch` | inherits web-fetch |
 | `apify-runner` | **stdlib only** | none | no |
 
-**No `pymupdf` / `fitz` in `webpage-to-md`.** PDF metadata extraction is delegated to `pdf-to-markdown` via the `merge_provenance` kwarg (§5.9, Phase B.1') so the heavy PyMuPDF dep stays in one place.
+**No `pymupdf` / `fitz` in `webpage-to-md`.** Phase B v0.1 saves PDF responses to disk and stops; PDF metadata extraction would be delegated to `pdf-to-markdown` via the `merge_provenance` kwarg (§5.9) if/when the v0.2 PDF-passthrough branch is implemented.
 
 `apify-runner`'s zero-dep stance is deliberate — projects that only need Apify shouldn't have to install Playwright or anything else.
 
@@ -1615,11 +1628,11 @@ Depend on Phase A leaves. Build sequentially. Build `webpage-to-md` first — Ma
 
 | Order | Skill | Source + scope | Est. |
 |---|---|---|---|
-| B.1 | **`webpage-to-md`** | New code wrapping `markdownify` for HTML->MD; PDF passthrough wrapping `pdf-to-markdown` with merged frontmatter (§5.9); `<base href>`/srcset URL normalization (§5.7); two-stage extraction with hooks for Readify (§5.6); filename collision policy (§5.8); local-input fast path with `<stem>.html.meta.json` sidecar (§5.3); content-determining frontmatter (selector, extraction_strategy, config_sha256). Profisee `_node_to_md()` is preserved as a side-by-side reference fixture (assertions are source-HTML driven per §5.5). | ~1 session |
-| B.1' | **`pdf-to-markdown` contract change (cross-skill)** | Add `merge_provenance: dict | None = None` kwarg to `pdf_to_markdown.process()`. When set, prepend the dict to the produced MD's frontmatter (PDF-internal metadata wins on key collisions for `title`/`author`); return the merged dict on `PdfMdResult.frontmatter`. Required for B.1's PDF passthrough to produce coherent merged frontmatter without `webpage-to-md` importing PyMuPDF directly (§5.9). Ships in the same Phase B window as B.1; tracked separately because it modifies an existing skill. | ~0.25 session |
+| B.1 | **`webpage-to-md`** | New code wrapping `markdownify` for HTML->MD; **PDF responses save `<stem>.pdf` and stop without conversion** (full PDF passthrough + `merge_provenance` deferred to v0.2 per §5.9); `<base href>`/srcset URL normalization (§5.7); two-stage extraction with hooks for Readify (§5.6); filename collision policy (§5.8); local-input fast path with `<stem>.html.meta.json` sidecar (§5.3); content-determining frontmatter (selector, extraction_strategy, config_sha256). Profisee `_node_to_md()` is preserved as a side-by-side reference fixture (assertions are source-HTML driven per §5.5). | ~0.75 session |
+| ~~B.1'~~ | ~~**`pdf-to-markdown` contract change (cross-skill)**~~ | **DEFERRED to v0.2 (decided 2026-05-12).** No longer in Phase B scope; see §5.9 for the v0.2 design preserved for future implementation. `pdf-to-markdown` is **not modified** by Phase B. | (deferred) |
 | B.2 | **`webpage-to-pdf`** | Playwright print-to-PDF with `"continuous"` (single-tall-page) default; CSS-injection via JS `getComputedStyle()` walk for sticky flattening (§6.6); incremental scroll loop for lazy-load (§6.5); `live` and `captured_html` render modes (§6.2) including `<base href>` injection in captured mode; live-mode `<stem>.rendered.html` persistence (§6.2); article-mode `selector` (§6.1); `strip_selectors` config for cookie-banner / chat-widget removal (§6.6); precedence rule for sticky options (§6.6). | ~1 session |
 
-**Each ships when:** Unit + integration tests green per the per-skill acceptance gates in §9.5, both URL-input and local-input paths exercised, plugin tag pushed (per §8.11). (Phase B.1's gate explicitly includes the new `merge_provenance` round-trip via B.1'.)
+**Each ships when:** Unit + integration tests green per the per-skill acceptance gates in §9.5, both URL-input and local-input paths exercised, plugin tag pushed (per §8.11).
 
 ### 9.3 Phase C — Migrate consumers (one at a time, carefully)
 
@@ -1710,7 +1723,7 @@ Each skill must satisfy these specific test scenarios before it ships. "Tests pa
 - HTML URL -> MD output with absolute links (relative URLs normalized via `<base href>` priority then `final_url`).
 - HTML URL with `srcset` images — both `src` and `srcset` URLs rewritten.
 - HTML URL -> source `<stem>.html` saved alongside `<stem>.md`.
-- PDF URL -> source `<stem>.pdf` saved + merged frontmatter includes both web-fetch metadata and PDF internal metadata.
+- PDF URL -> source `<stem>.pdf` saved; result indicates no MD generated (full passthrough + merged frontmatter deferred to v0.2 per §5.9).
 - Local file input (`Path` or `file://`) -> no network call; MD produced; frontmatter records `re_converted_at`.
 - Manifest row appended for both success and failure cases.
 - `selector` parameter narrows extraction to specific subtree.
@@ -1749,7 +1762,7 @@ These are the hard gates. New scenarios surfaced during integration with real co
 | Phase | Scope | Sessions |
 |---|---|---|
 | A — Leaf skills | 2 skills (`web-fetch`, `apify-runner`) | ~2 |
-| B — Mid-layer skills + cross-skill contract | `webpage-to-md`, `pdf-to-markdown` `merge_provenance`, `webpage-to-pdf` | ~2.25 |
+| B — Mid-layer skills (v0.1 — PDF passthrough deferred) | `webpage-to-md` (HTML-only), `webpage-to-pdf` | ~1.75 |
 | C — Migrations | AAA-radio + linkedin + Profisee | ~3.5 hands-on (+ AAA-radio's 4-week parallel verification window) |
 | D — Cleanup | docs + memory + registry | ~0.5 |
 | **Total** | | **~8–12 sessions hands-on, ~5–7 calendar weeks** (range reflects: PyYAML serialization, manifest schema versioning, deterministic clock, JSONL atomic write, `attach_to`, budget cost-buffer, live/captured PDF modes, sidecar provenance, per-skill acceptance gates — all of which expand the implementation surface beyond the original ~8-session estimate). |
