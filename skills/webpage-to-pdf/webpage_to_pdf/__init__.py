@@ -3,4 +3,7 @@ from webpage_to_pdf.errors import ConvertError
 from webpage_to_pdf.result import ConvertResult
 
 __version__ = "0.1.0"
-__all__ = ["ConvertError", "ConvertResult", "__version__"]
+
+from webpage_to_pdf.convert import convert  # noqa: E402
+
+__all__ = ["convert", "ConvertResult", "ConvertError", "__version__"]
