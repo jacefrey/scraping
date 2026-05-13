@@ -1,6 +1,9 @@
 """Public convert() — orchestration over fetch + parse + persist (spec §5.2)."""
 from __future__ import annotations
+import hashlib
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Union
 from bs4 import BeautifulSoup
 from webpage_to_md._clock import _clock
@@ -13,6 +16,7 @@ from webpage_to_md.naming import derive_stem
 from webpage_to_md.provenance import (
     build_frontmatter,
     normalize_relative_urls,
+    read_meta_sidecar,
     resolve_base,
     write_meta_sidecar,
 )
@@ -81,9 +85,16 @@ def convert(
             extraction_strategy=extraction_strategy,
             manifest_path=manifest_path,
         )
-    # Local path support lands in B.1.15.
-    raise ConvertError(
-        "local-input path not yet implemented in this task; see B.1.15 for the fast path"
+    return _convert_local(
+        path=value,
+        output_dir=output_dir,
+        selector=selector,
+        output_stem=output_stem,
+        emit_frontmatter=emit_frontmatter,
+        cfg=cfg,
+        config_sha256=config_sha256,
+        extraction_strategy=extraction_strategy,
+        manifest_path=manifest_path,
     )
 
 
@@ -244,3 +255,129 @@ def _persist_pdf_only(
         md_generated=False,
         content_type=result.content_type,
     )
+
+
+def _convert_local(
+    *,
+    path: Path,
+    output_dir: Path,
+    selector: str | None,
+    output_stem: str | None,
+    emit_frontmatter: bool,
+    cfg: dict[str, Any],
+    config_sha256: str,
+    extraction_strategy: str,
+    manifest_path: Path,
+) -> ConvertResult:
+    """Spec §5.3 iterate-without-re-fetching: convert a local HTML file.
+
+    No network call is made. Provenance comes from the sidecar when present,
+    falls back to <link rel="canonical"> in the HTML, then to the file path.
+    """
+    started = _clock()
+    raw = path.read_bytes()
+    sidecar = read_meta_sidecar(path.with_suffix(".html.meta.json"))
+
+    # Parse to extract canonical / title (needed for both branches).
+    working_soup = BeautifulSoup(raw, "html.parser")
+    canonical_in_html = _extract_canonical(working_soup)
+    title = _extract_title(working_soup)
+
+    # Build a synthetic result record shaped like FetchResult for downstream helpers.
+    if sidecar is not None:
+        synthetic_url = sidecar.get("url") or sidecar.get("final_url") or str(path)
+        synthetic_final = sidecar.get("final_url") or synthetic_url
+        original_fetched_at_str = sidecar.get("fetched_at")
+        source_sha256 = sidecar.get("source_sha256") or _sha256(raw)
+    else:
+        synthetic_url = canonical_in_html or f"file://{path}"
+        synthetic_final = canonical_in_html or f"file://{path}"
+        original_fetched_at_str = None
+        source_sha256 = _sha256(raw)
+
+    synthetic = SimpleNamespace(
+        requested_url=synthetic_url,
+        final_url=synthetic_final,
+        redirect_chain=[],
+        started_at=started,
+        completed_at=started,
+        content=raw,
+        content_type="text/html",
+        content_type_source=None,
+        encoding="utf-8",
+        content_length_bytes=len(raw),
+        content_hash_sha256=source_sha256,
+        http_status=None,
+        fetch_method=None,  # local — no network fetch
+        error_category=None,
+        headers={},
+        etag=None,
+        last_modified=None,
+        not_modified=False,
+        playwright_details=None,
+    )
+
+    if synthetic_final.startswith("http"):
+        stem = output_stem or derive_stem(synthetic_final)
+    else:
+        stem = output_stem or path.stem
+
+    # Normalize URLs against canonical/sidecar/file:// in that order.
+    try:
+        base = resolve_base(working_soup, final_url=synthetic_final)
+    except ConvertError:
+        base = f"file://{path}"
+    working_soup = normalize_relative_urls(working_soup, base_url=base)
+
+    content_node = select_content_node(
+        working_soup, selector=selector, strategy=extraction_strategy
+    )
+    md_body = convert_to_markdown(content_node, cfg)
+
+    out_md = output_dir / f"{stem}.md"
+    if emit_frontmatter:
+        original_fetched_at: datetime | None = None
+        if original_fetched_at_str:
+            try:
+                original_fetched_at = datetime.fromisoformat(original_fetched_at_str)
+            except ValueError:
+                original_fetched_at = None
+        fm = build_frontmatter(
+            result=synthetic,
+            source_artifact=path.name,
+            derived_artifact=out_md.name,
+            selector=selector,
+            extraction_strategy=extraction_strategy,
+            config_sha256=config_sha256,
+            title=title,
+            canonical_url=canonical_in_html,
+            original_fetched_at=original_fetched_at,
+            re_converted_at=_clock(),
+        )
+        out_md.write_text(fm + md_body, encoding="utf-8")
+    else:
+        out_md.write_text(md_body, encoding="utf-8")
+
+    completed = _clock()
+    append_manifest_row(
+        manifest_path,
+        status="ok",
+        result=synthetic,
+        source_artifact=path.name,
+        derived_artifact=out_md.name,
+        selector=selector,
+        extraction_strategy=extraction_strategy,
+        config_sha256=config_sha256,
+        duration_ms=(completed - started).total_seconds() * 1000,
+    )
+    return ConvertResult(
+        markdown_path=out_md,
+        source_path=path,
+        pdf_path=None,
+        md_generated=True,
+        content_type="text/html",
+    )
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
