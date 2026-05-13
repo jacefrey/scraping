@@ -145,3 +145,103 @@ def normalize_relative_urls(soup: BeautifulSoup, *, base_url: str) -> BeautifulS
             el["srcset"] = _rewrite_srcset(el["srcset"], resolved)
 
     return soup
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter + sidecar (spec §5.3, §5.4, §8.5) — added in B.1.10
+# ---------------------------------------------------------------------------
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+import yaml
+from webpage_to_md import __version__ as WEBPAGE_TO_MD_VERSION
+
+_MANIFEST_SCHEMA_VERSION = "1.0"
+
+
+def _iso(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    return dt.isoformat()
+
+
+def build_frontmatter(
+    *,
+    result: Any,
+    source_artifact: str,
+    derived_artifact: str,
+    selector: str | None,
+    extraction_strategy: str,
+    config_sha256: str,
+    title: str,
+    canonical_url: str | None,
+    original_fetched_at: datetime | None = None,
+    re_converted_at: datetime | None = None,
+) -> str:
+    """Serialize the spec §5.4 frontmatter dict as a YAML block.
+
+    Spec §8.5: yaml.safe_dump with allow_unicode=True, sort_keys=False,
+    default_flow_style=False.
+    """
+    payload: dict[str, Any] = {
+        "url": result.requested_url,
+        "final_url": result.final_url,
+        "canonical_url": canonical_url,
+        "title": title,
+        "content_type": (result.content_type or "").split(";")[0].strip() or None,
+        "content_type_source": result.content_type_source,
+        "http_status": result.http_status,
+        "started_at": _iso(result.started_at),
+        "completed_at": _iso(result.completed_at),
+        "fetched_at": _iso(result.completed_at),
+        "fetch_method": result.fetch_method,
+        "source_artifact": source_artifact,
+        "derived_artifact": derived_artifact,
+        "source_sha256": result.content_hash_sha256,
+        "selector": selector,
+        "extraction_strategy": extraction_strategy,
+        "config_sha256": config_sha256,
+        "converter": "webpage-to-md",
+        "converter_version": WEBPAGE_TO_MD_VERSION,
+        "manifest_schema_version": _MANIFEST_SCHEMA_VERSION,
+    }
+    if original_fetched_at is not None:
+        payload["original_fetched_at"] = _iso(original_fetched_at)
+    if re_converted_at is not None:
+        payload["re_converted_at"] = _iso(re_converted_at)
+
+    body = yaml.safe_dump(
+        payload, allow_unicode=True, sort_keys=False, default_flow_style=False
+    )
+    return f"---\n{body}---\n"
+
+
+def write_meta_sidecar(
+    sidecar_path: Path,
+    *,
+    result: Any,
+    web_fetch_version: str,
+) -> None:
+    """Write the §5.3 sidecar (fields not derivable from the HTML itself)."""
+    payload = {
+        "url": result.requested_url,
+        "final_url": result.final_url,
+        "fetched_at": _iso(result.completed_at),
+        "fetch_method": result.fetch_method,
+        "http_status": result.http_status,
+        "content_type_source": result.content_type_source,
+        "etag": getattr(result, "etag", None),
+        "last_modified": getattr(result, "last_modified", None),
+        "redirect_chain": list(getattr(result, "redirect_chain", []) or []),
+        "source_sha256": result.content_hash_sha256,
+        "web-fetch_version": web_fetch_version,
+    }
+    sidecar_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def read_meta_sidecar(sidecar_path: Path) -> dict[str, Any] | None:
+    """Read sidecar if present; return None when absent (spec §5.3 fallback)."""
+    if not sidecar_path.is_file():
+        return None
+    return json.loads(sidecar_path.read_text(encoding="utf-8"))
