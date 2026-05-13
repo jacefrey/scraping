@@ -1,0 +1,26 @@
+# webpage-to-pdf.toml — see spec §6.7 for field semantics.
+
+[render]
+page_format = "continuous"       # alias "screen" accepted
+render_mode = "live"              # "live" | "captured_html"
+margin_in = 0.3
+flatten_sticky = "auto"           # "auto" | true | false
+hide_fixed = false
+inject_page_break_avoid = "auto"
+persist_rendered_html = true
+strip_selectors = []
+
+[render.viewport]
+width_px = 1280
+height_px = 800
+
+[render.wait]
+strategy = "networkidle"
+selector = ""
+timeout_s = 10
+
+[render.lazy_load]
+scroll_pause_ms = 800
+max_scroll_steps = 50
+max_scroll_seconds = 30
+layout_settle_ms = 250
