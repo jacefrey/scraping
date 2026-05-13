@@ -356,9 +356,108 @@ def _render_live(
     )
 
 
-def _render_captured(**kwargs) -> ConvertResult:
-    """Stub — replaced in B.2.13."""
-    raise ConvertError("captured_html render mode not yet implemented; see B.2.13")
+def _render_captured(
+    *,
+    source_html: bytes,
+    result,
+    stem: str,
+    output_dir: Path,
+    source_html_path: Path,
+    selector: str | None,
+    page_format: Any,
+    margin_in: float,
+    flatten_bool: bool,
+    hide_fixed: bool,
+    inject_pb: bool,
+    cfg: dict[str, Any],
+    render_cfg: dict[str, Any],
+    config_sha256: str,
+    manifest_path: Path,
+    started,
+    base_url: str,
+) -> ConvertResult:
+    """Render PDF from the saved HTML on disk with <base href> injected on a
+    working copy. The persisted source HTML stays byte-identical.
+    """
+    out_pdf = output_dir / f"{stem}.pdf"
+    # Build a working copy with the injected base and applied DOM mutations
+    working_bytes = source_html
+    if render_cfg.get("strip_selectors"):
+        working_bytes = _strip_selectors(
+            working_bytes, selectors=render_cfg["strip_selectors"]
+        )
+    working_bytes = inject_base_href(working_bytes, base=base_url)
+    if selector:
+        working_bytes = apply_article_mask(working_bytes, selector=selector)
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".html", dir=str(output_dir),
+        prefix=f"{stem}.working.", delete=False,
+    ) as tmp:
+        tmp.write(working_bytes)
+        tmp_path = Path(tmp.name)
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            context = browser.new_context(viewport={
+                "width": render_cfg["viewport"]["width_px"],
+                "height": render_cfg["viewport"]["height_px"],
+            })
+            page = context.new_page()
+            page.goto(f"file://{tmp_path}")
+            run_lazy_load_loop(page, cfg)
+            if hide_fixed:
+                hide_fixed_elements(page)
+            elif flatten_bool:
+                flatten_sticky_elements(page)
+            if isinstance(page_format, str) and page_format in ("continuous", "screen"):
+                page_height_px = measure_scroll_height(page)
+            else:
+                page_height_px = 1
+            rf = resolve_page_format(
+                page_format,
+                page_height_px=page_height_px,
+                viewport_width_px=render_cfg["viewport"]["width_px"],
+            )
+            render_pdf(
+                page, out_path=out_pdf,
+                width_in=rf.width_in if not isinstance(rf.raw, dict) else 0,
+                height_in=rf.height_in if not isinstance(rf.raw, dict) else 0,
+                margin_in=margin_in, inject_page_break_avoid=inject_pb,
+            )
+            browser.close()
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    completed = _clock()
+    append_manifest_row(
+        manifest_path, status="ok", result=result,
+        source_artifact=source_html_path.name,
+        derived_artifact=out_pdf.name,
+        selector=selector,
+        config_sha256=config_sha256,
+        duration_ms=(completed - started).total_seconds() * 1000,
+        render_mode="captured_html",
+        page_format=page_format,
+        flatten_sticky=flatten_bool,
+        hide_fixed=hide_fixed,
+        live_double_fetch=False,
+        render_html_sha256=None,
+        rendered_html_artifact=None,
+        passthrough=False,
+    )
+    return ConvertResult(
+        pdf_path=out_pdf,
+        source_html_path=source_html_path,
+        rendered_html_path=None,
+        render_mode="captured_html",
+        live_double_fetch=False,
+        passthrough=False,
+    )
 
 
 def _convert_local(**kwargs) -> ConvertResult:
