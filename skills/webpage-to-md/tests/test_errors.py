@@ -23,3 +23,33 @@ def test_convert_config_error_is_not_not_implemented():
 def test_convert_error_optional_context():
     err = ConvertError("could not convert", url="https://example.com/x")
     assert err.context.get("url") == "https://example.com/x"
+
+from pathlib import Path
+from webpage_to_md.result import ConvertResult
+
+
+def test_convert_result_html_case():
+    r = ConvertResult(
+        markdown_path=Path("/tmp/out/x.md"),
+        source_path=Path("/tmp/out/x.html"),
+        pdf_path=None,
+        md_generated=True,
+        content_type="text/html",
+    )
+    assert r.markdown_path == Path("/tmp/out/x.md")
+    assert r.md_generated is True
+    assert r.pdf_path is None
+
+
+def test_convert_result_pdf_passthrough_v01():
+    """Spec §5.9: in v0.1, PDF responses save <stem>.pdf and stop. No MD generated."""
+    r = ConvertResult(
+        markdown_path=None,
+        source_path=None,
+        pdf_path=Path("/tmp/out/x.pdf"),
+        md_generated=False,
+        content_type="application/pdf",
+    )
+    assert r.md_generated is False
+    assert r.markdown_path is None
+    assert r.pdf_path is not None
