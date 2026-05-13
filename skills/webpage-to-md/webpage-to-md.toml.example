@@ -1,0 +1,15 @@
+# webpage-to-md.toml — see spec §5.10 for field semantics.
+
+[convert]
+emit_frontmatter = true
+default_selector = ""                       # empty = use the §5.6 strategy ladder
+
+[convert.extraction]
+strategy = "selector_then_body"              # MVP default — skip readability layer
+# strategy = "selector_then_readability_then_body"  # FUTURE — when Readify lands
+
+[convert.html_to_md]
+strip_classes = ["ad", "newsletter-signup", "social-share"]
+strip_selectors = []                          # arbitrary CSS selectors to drop
+preserve_classes = []                         # CSS classes to KEEP even if matched
+heading_style = "ATX"                         # markdownify option: "ATX" (#) or "SETEXT"
