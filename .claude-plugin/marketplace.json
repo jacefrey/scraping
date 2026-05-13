@@ -4,8 +4,8 @@
     "name": "Jace Frey"
   },
   "metadata": {
-    "description": "URL→bytes, URL→Markdown, URL→PDF, and Apify v2 client — a four-skill family for open-web and third-party scraping",
-    "version": "0.2.2"
+    "description": "URL\u2192bytes, URL\u2192Markdown, URL\u2192PDF, and Apify v2 client \u2014 a four-skill family for open-web and third-party scraping",
+    "version": "0.3.0"
   },
   "plugins": [
     {
@@ -14,8 +14,8 @@
         "source": "url",
         "url": "https://github.com/jacefrey/scraping.git"
       },
-      "description": "URL→bytes (web-fetch), URL→Markdown (webpage-to-md), URL→PDF (webpage-to-pdf), and stdlib-only Apify v2 client (apify-runner). Built for macOS 13 Intel.",
-      "version": "0.2.2",
+      "description": "URL\u2192bytes (web-fetch), URL\u2192Markdown (webpage-to-md), URL\u2192PDF (webpage-to-pdf), and stdlib-only Apify v2 client (apify-runner). Built for macOS 13 Intel.",
+      "version": "0.3.0",
       "strict": true
     }
   ]

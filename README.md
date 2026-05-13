@@ -3,9 +3,9 @@
 A Claude Code plugin bundling four web-scraping skills:
 
 - **web-fetch** — URL → bytes with HTTP→Playwright auto-fallback, content-type sniffing, redirect chain, and provenance hashing.
-- **webpage-to-md** — URL → Markdown. Routes PDF passthrough vs HTML conversion. (Phase B.)
-- **webpage-to-pdf** — URL → PDF. Default `"continuous"` (single-tall-page) format for visual fidelity. (Phase B.)
-- **apify-runner** — Stdlib-only Apify v2 actor client. Used when open-web access is blocked. (Phase A.)
+- **webpage-to-md** — URL → Markdown with persisted source HTML, frontmatter, and a JSONL manifest. Local-input fast path with sidecar provenance.
+- **webpage-to-pdf** — URL → PDF via Playwright print-to-PDF. `live` mode (default, navigates to original URL) or `captured_html` mode (renders saved HTML with injected `<base href>`). PDF inputs pass through unchanged.
+- **apify-runner** — Stdlib-only Apify v2 actor client. Used when open-web access is blocked.
 
 ## Installation
 
@@ -22,8 +22,8 @@ These skills do **not** implement stealth browser fingerprinting, CAPTCHA solvin
 
 ## Status
 
-- **Phase A** — `web-fetch` foundation (types, config, detection helpers): in progress. `apify-runner`: not started.
-- **Phase B** — `webpage-to-md`, `webpage-to-pdf`: not started.
+- **Phase A** — `web-fetch` and `apify-runner`: complete (v0.2.0).
+- **Phase B** — `webpage-to-md` and `webpage-to-pdf`: complete (v0.3.0).
 - **Phase C** — Consumer migrations (AAA-radio, linkedin, Profisee): not started.
 
 ## Development
