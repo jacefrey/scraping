@@ -460,9 +460,116 @@ def _render_captured(
     )
 
 
-def _convert_local(**kwargs) -> ConvertResult:
-    """Stub — replaced in B.2.14."""
-    raise ConvertError("local-input path not yet implemented; see B.2.14")
+def _convert_local(
+    *,
+    path: Path,
+    output_dir: Path,
+    output_stem: str | None,
+    selector: str | None,
+    page_format: Any,
+    margin_in: float,
+    flatten_bool: bool,
+    hide_fixed: bool,
+    inject_pb: bool,
+    base_url: str | None,
+    cfg: dict[str, Any],
+    render_cfg: dict[str, Any],
+    config_sha256: str,
+    manifest_path: Path,
+) -> ConvertResult:
+    started = _clock()
+
+    if looks_like_pdf(path):
+        # Local PDF passthrough — no render, just copy bytes
+        body = path.read_bytes()
+        stem = output_stem or path.stem
+        out_pdf = output_dir / f"{stem}.pdf"
+        out_pdf.write_bytes(body)
+        synthetic = SimpleNamespace(
+            requested_url=str(path),
+            final_url=str(path),
+            redirect_chain=[],
+            started_at=started,
+            completed_at=started,
+            content_type="application/pdf",
+            content_type_source=None,
+            fetch_method=None,
+            http_status=None,
+            content_hash_sha256=_sha256(body),
+        )
+        completed = _clock()
+        append_manifest_row(
+            manifest_path, status="ok", result=synthetic,
+            source_artifact=out_pdf.name,
+            derived_artifact=None,
+            selector=None,
+            config_sha256=config_sha256,
+            duration_ms=(completed - started).total_seconds() * 1000,
+            render_mode=None, page_format=None,
+            flatten_sticky=None, hide_fixed=None,
+            live_double_fetch=False,
+            render_html_sha256=None,
+            rendered_html_artifact=None,
+            passthrough=True,
+        )
+        return ConvertResult(
+            pdf_path=out_pdf,
+            source_html_path=None,
+            rendered_html_path=None,
+            render_mode=None,
+            live_double_fetch=False,
+            passthrough=True,
+        )
+
+    # Local HTML — always use captured_html semantics (no live URL)
+    body = path.read_bytes()
+    stem = output_stem or path.stem
+    out_html = output_dir / f"{stem}.html"
+    if out_html.resolve() != path.resolve():
+        out_html.write_bytes(body)
+
+    # Resolve base URL from sidecar, canonical link, or base_url arg
+    side = read_meta_sidecar(path.with_suffix(".html.meta.json"))
+    if base_url:
+        eff_base = base_url
+    elif side and side.get("final_url"):
+        eff_base = side["final_url"]
+    else:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(body, "html.parser")
+        link = soup.find("link", rel="canonical")
+        eff_base = link["href"] if link and link.get("href") else f"file://{path}"
+
+    synthetic = SimpleNamespace(
+        requested_url=str(path),
+        final_url=eff_base,
+        redirect_chain=[],
+        started_at=started,
+        completed_at=started,
+        content_type="text/html",
+        content_type_source=None,
+        fetch_method=None,
+        http_status=None,
+        content_hash_sha256=_sha256(body),
+    )
+    return _render_captured(
+        source_html=body,
+        result=synthetic,
+        stem=stem,
+        output_dir=output_dir,
+        source_html_path=out_html,
+        selector=selector,
+        page_format=page_format,
+        margin_in=margin_in,
+        flatten_bool=flatten_bool,
+        hide_fixed=hide_fixed,
+        inject_pb=inject_pb,
+        cfg=cfg, render_cfg=render_cfg,
+        config_sha256=config_sha256,
+        manifest_path=manifest_path,
+        started=started,
+        base_url=eff_base,
+    )
 
 
 def _passthrough_pdf_from_bytes(
