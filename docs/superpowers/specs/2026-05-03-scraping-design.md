@@ -362,16 +362,21 @@ The brainstorming session surfaced a real concern about Playwright + browser ext
 ```python
 from webpage_to_md import convert
 
-md_path = convert(
+result = convert(
     source="https://example.com/article",   # http(s):// URL, file:// URL, or local Path
     output_dir=Path("out/"),
     *,
     selector=None,                          # CSS selector to narrow before MD conversion (HTML only)
     output_stem=None,                        # override filename (default: derived from URL slug)
     emit_frontmatter=True,                   # YAML provenance block at the top
-    cfg=None,
+    cfg=None,                                # dict override; e.g. extend strip_selectors with site-specific CSS
 )
-# Returns Path to <output_dir>/<stem>.md
+# Returns ConvertResult with fields:
+#   markdown_path: Path | None       # the produced .md (None when content_type is application/pdf)
+#   source_path:   Path | None       # the persisted <stem>.html (HTML branch) or <stem>.pdf (PDF branch)
+#   pdf_path:      Path | None       # the persisted <stem>.pdf when content_type == application/pdf
+#   md_generated:  bool              # True when markdown was produced; False on PDF passthrough (v0.1)
+#   content_type:  str | None        # the response Content-Type that drove the routing branch
 ```
 
 ### 5.2 Routing — URL inputs
@@ -724,7 +729,7 @@ Note: the `frontmatter.py` module is named `provenance.py` to avoid namespace co
 ```python
 from webpage_to_pdf import convert
 
-pdf_path = convert(
+result = convert(
     source="https://example.com/article",   # http(s):// URL, file:// URL, or local Path
     output_dir=Path("out/"),
     *,
@@ -737,7 +742,14 @@ pdf_path = convert(
     base_url=None,                          # explicit base for local-HTML rendering when canonical/sidecar absent (see §6.2)
     cfg=None,
 )
-# Returns Path to <output_dir>/<stem>.pdf
+# Returns ConvertResult with fields:
+#   pdf_path:            Path           # the produced .pdf (always present; passthrough or render)
+#   source_html_path:    Path | None    # persisted <stem>.html on HTML routes; None on direct-PDF passthrough
+#   rendered_html_path:  Path | None    # the second-fetch HTML Playwright actually rendered ("live" mode only)
+#   render_mode:         str | None     # "live" | "captured_html" | None on passthrough
+#   live_double_fetch:   bool | None    # True when render_mode == "live" (web-fetch GET + Playwright nav)
+#   passthrough:         bool           # True when the response was application/pdf (no Playwright render)
+# Note: NO `content_type` field on this result (unlike `webpage_to_md.ConvertResult`).
 ```
 
 **Article-mode rendering — the optional `selector` parameter.** Mirrors §5.6's content-narrowing in `webpage-to-md`. When set, `webpage-to-pdf` injects CSS pre-render that hides everything outside the selector subtree:
